@@ -1,42 +1,63 @@
-import axios from 'axios';
-import { existsSync } from 'fs';
+import { describe, it, expect, afterEach, jest } from '@jest/globals';
 
-if (existsSync('.env')) {
-    process.loadEnvFile();
-}
+jest.unstable_mockModule('axios', () => ({
+    default: { get: jest.fn() },
+}));
 
-export const BASE_URL = process.env.FRANKFURTER_BASE_URL;
+const axios = (await import('axios')).default;
+const { buscarCotacao, converterMoeda } = await import('../src/conversor.js');
 
-export async function obterCotacao(de, para, http = axios) {
-    const { data } = await http.get(BASE_URL, {
-        params: { from: de, to: para },
+const BASE_URL = 'https://api.frankfurter.app';
+
+describe('buscarCotacao - mock da API', () => {
+    afterEach(() => {
+        jest.clearAllMocks();
     });
 
-    let taxa;
+    it('deve retornar a cotação quando a API responde com sucesso', async () => {
+        axios.get.mockResolvedValue({
+            data: { rates: { BRL: 5 } },
+        });
 
-    if (data.rates) {
-        taxa = data.rates[para];
-    } else {
-        taxa = undefined;
-    }
+        await expect(buscarCotacao('USD', 'BRL')).resolves.toBe(5);
+        expect(axios.get).toHaveBeenCalledTimes(1);
+        expect(axios.get).toHaveBeenCalledWith(`${BASE_URL}/latest?from=USD&to=BRL`);
+    });
 
-    if (taxa === undefined) {
-        throw new Error(`Cotação de ${de} para ${para} indisponivel`);
-    }
+    it('deve rejeitar quando ocorre um erro de rede', async () => {
+        axios.get.mockRejectedValue(new Error('Erro de rede'));
 
-    return taxa;
-}
+        await expect(buscarCotacao('USD', 'BRL')).rejects.toThrow('Erro de rede');
+        expect(axios.get).toHaveBeenCalledTimes(1);
+    });
 
-export async function converterMoeda(valor, de, para, http = fetch) {
-    if (typeof valor !== 'number' || valor <= 0) {
-        throw new Error('O valor deve ser um número maior que zero');
-    }
+    it('deve lançar erro quando a resposta não possui a cotação', async () => {
+        axios.get.mockResolvedValue({
+            data: { rates: {} },
+        });
 
-    if (de === para) {
-        return Number(valor.toFixed(2));
-    }
+        await expect(buscarCotacao('USD', 'BRL')).rejects.toThrow('Cotação indisponível');
+        expect(axios.get).toHaveBeenCalledTimes(1);
+    });
+});
 
-    const taxa = await obterCotacao(de, para, http);
+describe('Conversor de moedas - mock de modulo', () => {
+    afterEach(() => {
+        jest.clearAllMocks();
+    });
 
-    return Number((valor * taxa).toFixed(2));
-}
+    it('Deve converter usando a taxa devolvida pela API', async () => {
+        axios.get.mockResolvedValue({
+            data: { rates: { BRL: 5 } },
+        });
+
+        const resultado = await converterMoeda(10, 'USD', 'BRL');
+        expect(resultado).toBe(50);
+    });
+
+    it('Deve propagar o erro quando a requisição falha', async () => {
+        axios.get.mockRejectedValue(new Error('Erro de rede'));
+
+        await expect(converterMoeda(10, 'USD', 'BRL')).rejects.toThrow('Erro de rede');
+    });
+});

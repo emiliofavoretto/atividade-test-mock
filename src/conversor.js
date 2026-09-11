@@ -1,26 +1,18 @@
-import { afterEach, jest } from '@jest/globals';
+import axios from 'axios';
 
-jest.unstable_mockModule('axios', () => ({
-    default: { get: jest.fn() },
-}));
+const BASE_URL = 'https://api.frankfurter.app';
 
-const axios = (await import('axios')).default;
+export async function buscarCotacao(de, para) {
+    const response = await axios.get(`${BASE_URL}/latest?from=${de}&to=${para}`);
 
-describe('Conversor de moedas - mock de modulo', () => {
-    afterEach(() => {
-        jest.clearAllMocks();
-    });
+    if (!response.data?.rates?.[para]) {
+        throw new Error('Cotação indisponível');
+    }
 
-    it('Deve converter usando a taxa devolvida pela API', async () => {
-        axios.get.mockResolvedValue({
-            data: { amount: 1, base: 'USD', rates: { BRL: 5 } },
-        });
+    return response.data.rates[para];
+}
 
-        const resultado = await converterMoeda(10, 'USD', 'BRL');
-        expect(resultado).toBe(50);
-    });
-
-    it('Deve propagar o erro quando a requisição falha', async () => {
-        axios.get.mockRejectedValue(new Error('Network Error'));
-    });
-});
+export async function converterMoeda(valor, de, para) {
+    const cotacao = await buscarCotacao(de, para);
+    return valor * cotacao;
+}
